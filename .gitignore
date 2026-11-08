@@ -1,0 +1,6 @@
+*.o
+FluidSolver
+Out/
+*.png
+*.mp4
+*.gif

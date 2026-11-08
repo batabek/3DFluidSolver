@@ -1,21 +1,25 @@
 /**
- * @file Fluid3D.cpp
- * @author Berk Atabek (atabek @domain.com)
- * @brief This is an implementation of a 3D Fluid Solver 
+ * @file Fluid3D.h
+ * @author Berk Atabek (atabek dot berk at gmail dot com)
+ * @brief This is an implementation of a 3D Fluid Solver
  *       based on Jos Stams' "Stable Fluids" paper.
- *       It uses a colocated grid instead of a staggered grid 
+ *       It uses a colocated grid instead of a staggered grid
  *		 since this is straightforward to implement.
  */
 #ifndef FLUID3D_H
 #define FLUID3D_H
 
-class Fluid3D 
+class Fluid3D
 {
 	public:
 		// constructors
 		Fluid3D();
 		Fluid3D(unsigned nx, unsigned ny, unsigned nz);
 		~Fluid3D();
+
+		// grids are owned by raw pointers, so disallow copying
+		Fluid3D(const Fluid3D&) = delete;
+		Fluid3D& operator=(const Fluid3D&) = delete;
 
 		// accessors
 		unsigned getNumCellinX()const;
@@ -32,61 +36,68 @@ class Fluid3D
 
 		const float* getPressure() const;
 		const float* getPressureOld() const;
-		
+
 		float* getTemperature();
 		float* getTemperatureOld();
-		
-		float* getDensity(); 
+
+		float* getDensity();
 		float* getDensityOld();
-			
-		// setters
-		
 
 		// main solver interface
-		void simulate(int numFrames, float dt);	
-		void ScalarStep(float *s1, float *s0, float *u, float *v, float *w, float source, float dt);
+		void simulate(int numFrames, float dt);
+
+		// s1 holds the current scalar field on input and output, s0 is used as scratch
+		void ScalarStep(float *s1, float *s0, float *u, float *v, float *w, float dt);
+
+		// <u1,v1,w1> holds the current velocity on input and output, <u0,v0,w0> is used as scratch
 		void VelocityStep(float *u1, float *v1, float *w1, float *u0, float *v0, float *w0, float dt);
 
 		// add a constant force to velocity grid
 		void addForce(float fx, float fy, float fz, float dt);
-		
-		// add a force field 
+
+		// add a force field
 		void addForce(float *u, float *v, float *w, float *fx, float *fy, float *fz, float dt);
-		
+
 		// add buoyant force to force grid
 		void addBuoyancyForce();
-		
+
 		// transport (semi lagrangian advection)
 		// advect scalar or vector quantity s0 through fluid's velocity field <u,v,w>,
 		// output value is stored in s1
-		void transport(float *s1, float *s0, float *u, float *v, float *w, float dt);
-		
-		// diffuse
-		void diffuse(float *u, float *u0, float visc, float dt);
+		void transport(float *s1, float *s0, float *u, float *v, float *w, float dt, bool isScalar);
 
-		// projection 
-		void project(float *u1, float *v1, float *w1, float *u0, float *v0, float *w0, float dt);
+		// diffuse
+		void diffuse(float *u, float *u0, float visc, float dt, bool isScalar);
+
+		// projection: makes <u,v,w> divergence free
+		void project(float *u, float *v, float *w);
 
 		// 3D Jacobi iterative solver
-		void jacobi(float *x, float *x0, float alpha, float beta, bool isPressure);
+		void jacobi(float *x, float *x0, float alpha, float beta, bool isScalar);
 
 		// tri-linear interpolator
 		float triLerp(float *s, float x, float y, float z);
 
 		// apply boundary conditions
-		void applyBoundaryConditions(float *u0, bool isPressure);
+		// isScalar selects pure neumann (scalars, pressure) instead of no-slip (velocity)
+		void applyBoundaryConditions(float *u0, bool isScalar);
 		void setBoundaryToZero(float *u);
 
 		// add concentration of particles and heat sources
-		void addSourcesToSimulation(float* field, int xres, int yres, int zres);
+		void addSourcesToSimulation(float* field);
 
 		// creates a DF3 density file to visualize in POV-Ray
-		int exportGridToDF3Format(const float *grid, unsigned short int nx, unsigned short int ny, unsigned short int nz, char *filename);
+		// grid is expected to be padded with one layer of boundary cells
+		int exportGridToDF3Format(const float *grid, unsigned short int nx, unsigned short int ny, unsigned short int nz, const char *filename);
 
 		// creates a volume for PBRT
-		int exportGridToPBRTFormat(float* grid, int nx, int ny, int nz, char *filename);
-		
+		// grid is expected to be padded with one layer of boundary cells
+		int exportGridToPBRTFormat(const float* grid, int nx, int ny, int nz, const char *filename);
+
 	private:
+
+		// index of the cell (x,y,z) in a grid padded with boundary cells
+		int IX(int x, int y, int z) const { return x + y*(m_Nx + 2) + z*(m_Nx + 2)*(m_Ny + 2); }
 
 		// helpers for retrieving grid value based on the 3D index value
 		float getCellValueAt(float *grid, int x, int y, int z);
@@ -100,24 +111,27 @@ class Fluid3D
 		int m_NMax; // for making uniform grid
 
 		// size of each voxel for each coordinate
-		// we are asuming a grid size of 1 for each dimensions, so that 
-		// it maps unit cube when rendering density  
+		// we are asuming the longest dimension has a size of 1, so that
+		// it maps unit cube when rendering density
 		float m_Dx, m_Dy, m_Dz;
 
 		// number of total grid cells
 		int m_numCells;
-				
+
 		float *m_U0, *m_V0, *m_W0;  // 3D velocity grid <u,v,w>
-		float *m_U1, *m_V1, *m_W1; 
-		float *m_Fx, *m_Fy, *m_Fz;  // 3D force grid(f)	         
+		float *m_U1, *m_V1, *m_W1;
+		float *m_Fx, *m_Fy, *m_Fz;  // 3D force grid(f)
 		float *m_P0, *m_P1;			// pressure grid
 		float *m_T0, *m_T1;			// temperature grid
 		float *m_S0, *m_S1;			// scalar grid(density)
 		float *m_Div;				// divergence i.e. del dot u
-						
+
 		// buoyancy force parameters
 		float m_alpha, m_beta;
 		float m_Tamb; // ambient temperature
+
+		// viscosity of the fluid and diffusion rate of the scalars
+		float m_visc, m_diff;
 
 		// time step
 		float m_dt;
